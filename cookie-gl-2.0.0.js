@@ -31,9 +31,8 @@ class CGLCanvas {
     // rendering
     #canvas;
     #ctx; // canvas 2d context (canvas.getContext("2d"));
-    #refreshInterval = null; // returned by setInterval, holds engine loop interval
+    #refreshTimeout = null; // returned by setInterval, holds engine loop interval
     #children;
-
 
     constructor(canvasElem, options={}) {
         if (canvasElem.constructor !== HTMLCanvasElement) {
@@ -44,9 +43,6 @@ class CGLCanvas {
         this.#width = canvasElem.width;
         this.#height = canvasElem.height;
 
-        this.#canvas = canvasElem;
-        this.#ctx = canvasElem.getContext("2d");
-
         // set options
         this.#frameRate = options.frameRate ?? 60;
         this.#smoothingEnabled = options.smoothingEnabled ?? false;
@@ -54,12 +50,18 @@ class CGLCanvas {
         
         // set rendering fields
         this.#children = []; // contains CGLObjects
+        
+        // assign canvas properties
+        this.#canvas = canvasElem;
+        this.#ctx = canvasElem.getContext("2d");
+        this.#ctx.imageSmoothingEnabled = this.#smoothingEnabled;
+        this.#ctx.imageSmoothingQuality = this.#smoothingQuality;
 
         // TODO: bind resize event on canvas to update this element's width and height
     }
 
     // getters and setters
-    get isRunning() {  return this.#refreshInterval !== null;  }
+    get isRunning() {  return this.#refreshTimeout !== null;  }
     get width() {  return this.#width;  }
     get height() {  return this.#height;  }
     set width(w) {
@@ -72,28 +74,30 @@ class CGLCanvas {
     }
     get children() {  return this.#children;  }
 
+    // framerate & frametime setters/getters
+    get frameTime() {  return 1e3/this.#frameRate;  }
+    set frameTime(hz) {  this.#frameRate = 1e3/hz;  }
+    get frameRate() {  return this.#frameRate;  }
+    set frameRate(hz) {  this.#frameRate = hz;  }
+
     // restarts the display interval & draw method
     start() {
         if (this.isRunning) return void cglWarn("CGLCanvas interval already started, aborting...");
-
-        // bind interval
-        this.#refreshInterval = setInterval(() => {
-            this.#draw();
-        });
+        this.#draw(); // initial call to draw, binds refreshTimeout
     }
 
     // stops the display interval
     stop() {
-        clearInterval(this.#refreshInterval);
-        this.#refreshInterval = null;
+        if (this.#refreshTimeout === null) return;
+        clearTimeout(this.#refreshTimeout);
+        this.#refreshTimeout = null;
     }
 
     // draws content on the canvas when called by the engine loop interval
     #draw() {
         const ctx = this.#ctx;
 
-        // clear the canvas
-        ctx.clearRect(0, 0, this.width, this.height);
+        ctx.clearRect(0, 0, this.width, this.height); // clear the canvas
 
         // store any values that will be changed for later reassignmet
         const opts = {"lineWidth": ctx.lineWidth, "fillStyle": ctx.fillStyle};
@@ -120,6 +124,9 @@ class CGLCanvas {
 
         // reassign any previous values that were overridden
         Object.assign(this.#ctx, opts);
+
+        // queue next timeout
+        this.#refreshTimeout = setTimeout(() => this.#draw(), this.frameTime);
     }
     
     // append child to the end of the children array (draws above everything)
@@ -201,16 +208,20 @@ class CGLPoly extends CGLObject {
     }
 
     __draw(ctx) {
-        // draw polygon vertices
+        // fill polygon vertices
         ctx.beginPath();
         for (let vertex of this.#vertices)
             ctx.lineTo(vertex[0], vertex[1]);
         ctx.lineTo(0, 0); // draw line back to x, y
         ctx.closePath();
         
-        // stroke & fill polygon
+        // stroke and fill (inset stroke thanks to https://stackoverflow.com/a/45125187)
+        ctx.save();
+        ctx.clip();
+        ctx.lineWidth *= 2;
         if (this.fillColor !== "transparent") ctx.fill();
         if (this.outlineColor !== "transparent") ctx.stroke();
+        ctx.restore();
     }
 }
 
@@ -250,6 +261,44 @@ class CGLEllipse extends CGLObject {
 class CGLCircle extends CGLEllipse {
     constructor(x, y, radius, options={}) {
         super(x, y, radius, radius, options);
+    }
+}
+
+// rectangle defined by width and height
+class CGLRect extends CGLObject {
+    #width; // numeric dimensions of rectangle, in pixels
+    #height; // numeric dimensions of rectangle, in pixels
+
+    constructor(x=null, y=null, width=null, height=null, options={}) {
+        // verify width and height are valid
+        if (width === null || width.constructor !== Number || width < 0)
+            throw new CGLException("Invalid width passed to CGLRect constructor. Width must be a positive number.");
+        if (height === null || height.constructor !== Number || height < 0)
+            throw new CGLException("Invalid height passed to CGLRect constructor. Height must be a positive number.");
+
+        // otherwise, passthrough to CGLRect
+        super(x, y, options);
+        this.#width = width;
+        this.#height = height;
+    }
+
+    __draw(ctx) {
+        if (this.fillColor !== "transparent")
+            ctx.fillRect(0, 0, this.#width, this.#height);
+        if (this.outlineColor !== "transparent")
+            ctx.strokeRect(0, 0, this.#width, this.#height);
+    }
+}
+
+// square defined by set of vertices (via immediate passthrough to CGLRect)
+class CGLSquare extends CGLRect {
+    constructor(x=null, y=null, size=null, options={}) {
+        // verify width and height are valid
+        if (size === null || size.constructor !== Number || size < 0)
+            throw new CGLException("Invalid size passed to CGLRect constructor. Square size must be a positive number.");
+
+        // otherwise, passthrough to CGLRect
+        super(x, y, size, size, options);
     }
 }
 

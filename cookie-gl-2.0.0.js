@@ -396,7 +396,7 @@ class CGLPoly extends CGLObject {
         ctx.beginPath();
         for (let vertex of this.#vertices)
             ctx.lineTo(vertex[0], vertex[1]);
-        ctx.lineTo(0, 0); // draw line back to x, y
+        ctx.lineTo(this.#vertices[0][0], this.#vertices[0][1]); // draw line back to the first vertex
         ctx.closePath();
 
         // unrotate

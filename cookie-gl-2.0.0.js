@@ -36,6 +36,7 @@ class CGLCanvas {
     #ctx; // canvas 2d context (canvas.getContext("2d"));
     #refreshTimeout = null; // returned by setInterval, holds engine loop interval
     #children;
+    #mousePos = {"x": null, "y": null};
     id = __cglRandomID(); // unique id associated with this CGLCanvas
 
     constructor(canvasElem, options={}) {
@@ -76,15 +77,10 @@ class CGLCanvas {
 
         this.#canvas.addEventListener("mousemove", (e) => {
             // convert clientX and clientY into bottom-left coordinate system
-            const pos = {"x": e.offsetX, "y": this.#height - e.offsetY};
-
-            // find whatever children objects are at this point
-            const children = this.#childrenAt(pos.x, pos.y, true, true);
-            if (children.length === 0) return;
-
-            // handle first element
-            children[children.length-1].__handleEvent("hover", this.#canvas, e);
+            this.#mousePos = {"x": e.offsetX, "y": this.#height - e.offsetY};
         });
+        
+        this.#canvas.addEventListener("mouseleave", () => this.#mousePos = {"x": null, "y": null});
 
         // TODO: bind resize event on canvas to update this element's width and height
     }
@@ -124,8 +120,9 @@ class CGLCanvas {
 
     // draws content on the canvas when called by the engine loop interval
     #draw() {
-        const ctx = this.#ctx;
+        /*************** call and move children ***************/
 
+        const ctx = this.#ctx;
         ctx.clearRect(0, 0, this.width, this.height); // clear the canvas
 
         // store any values that will be changed for later reassignmet
@@ -162,6 +159,21 @@ class CGLCanvas {
 
         // reassign any previous values that were overridden
         Object.assign(this.#ctx, opts);
+
+        /*************** call hover events ***************/
+        
+        // find whatever children objects are at this point
+        if (this.#mousePos.x !== null && this.#mousePos.y !== null) {
+            const children = this.#childrenAt(this.#mousePos.x, this.#mousePos.y, true, true);
+            if (children.length > 0)
+                children[children.length-1].__handleEvent("hover", this.#canvas);
+
+            // update cursor
+            if (children.length)
+                this.#canvas.style.cursor = children[children.length-1].cursor;
+            else
+                this.#canvas.style.cursor = "";
+        }
 
         // queue next timeout
         this.#refreshTimeout = setTimeout(() => this.#draw(), this.frameTime);
@@ -215,7 +227,7 @@ class CGLObject {
     outlineThickness; // integer; outline thickness of polygon or 1, in pixels
     isVisible; // boolean, whether the CGLObject is culled at render
     ignoreClicks; // boolean, whether to ignore clicks on this object or not
-    #cursor; // string; cursor shown when the CGLObject is hovered over
+    cursor; // string; cursor shown when the CGLObject is hovered over
 
     id; // the ID of this particular CGLObject
     canvasID = null; // number, the ID of the canvas the CGLObject is associated with
@@ -255,7 +267,7 @@ class CGLObject {
         this.outlineColor = options.outlineColor ?? (this.fillColor === "transparent" ? "black" : "transparent");
 
         this.isVisible = options.isVisible ?? true;
-        this.#cursor = options.cursor ?? "";
+        this.cursor = options.cursor ?? "";
         this.ignoreClicks = options.ignoreClicks ?? false;
 
         // update #lastUpdate timestamp
@@ -282,7 +294,8 @@ class CGLObject {
 
         // rotate the object
         this.angularVelocity += this.angularAcceleration * frameGap;
-        this.rotation -= this.angularVelocity * frameGap;
+        this.rotation += this.angularVelocity * frameGap;
+        this.rotation %= 360;
 
         // update last timestamp
         this.#lastUpdate = Date.now();
@@ -333,10 +346,6 @@ class CGLObject {
         // call all events
         for (let event of this.#eventListeners[eventName])
             event.callback(...args);
-
-        // allow mousemove to change the cursor
-        if (eventName === "hover")
-            canvas.style.cursor = this.#cursor;
     }
 }
 
@@ -345,10 +354,8 @@ class CGLPoly extends CGLObject {
     #vertices; // array of 3+ vertices, each as an array of 2 numbers in the format [x, y]
     
     // store dimensions for faster calculation of points in bounds
-    #minX;
-    #maxX;
-    #minY;
-    #maxY;
+    #centroidX;
+    #centroidY;
 
     constructor(x=null, y=null, vertices=null, options={}) {
         super(x, y, options);
@@ -366,43 +373,38 @@ class CGLPoly extends CGLObject {
         // everything is good, assign vertices
         this.#vertices = vertices.map(arr => [...arr]); // shallow copy
 
-        // determine min and max x and y values
-        const xVert = this.#vertices.map(arr => arr[0]);
-        const yVert = this.#vertices.map(arr => arr[1]);
-        this.#minX = this.x + Math.min(...xVert);
-        this.#maxX = this.x + Math.max(...xVert);
-        this.#minY = this.y + Math.min(...yVert);
-        this.#maxY = this.y + Math.max(...yVert);
+        // determine centroid
+        this.#centroidX = 0, this.#centroidY = 0;
+        this.#vertices.forEach(arr => {this.#centroidX += arr[0] + this.x; this.#centroidY += arr[1] + this.y});
+        this.#centroidX /= this.#vertices.length;
+        this.#centroidY /= this.#vertices.length;
     }
 
     __draw(ctx) {
-        const width = this.#maxX - this.#minX, height = this.#maxY - this.#minY;
-
-        // rotate the polygon
-        ctx.save();
-        ctx.translate(width/2, height/2);
-        ctx.rotate(this.rotation * Math.PI / 180);
-        ctx.translate(-width/2, -height/2);
-
-        // fill polygon vertices
+        // rotate polygon
         ctx.beginPath();
-        for (let vertex of this.#vertices)
-            ctx.lineTo(vertex[0], vertex[1]);
-        ctx.lineTo(this.#vertices[0][0], this.#vertices[0][1]); // draw line back to the first vertex
+        const sin = Math.sin(-this.rotation * Math.PI/180);
+        const cos = Math.cos(-this.rotation * Math.PI/180);
+        
+        // find centroid
+        const xVert = this.#vertices.map(arr => cos*(arr[0] - this.#centroidX) - sin*(arr[1] - this.#centroidY) + this.#centroidX);
+        const yVert = this.#vertices.map(arr => sin*(arr[0] - this.#centroidX) + cos*(arr[1] - this.#centroidY) + this.#centroidY);
+ 
+        for (let i = 0; i < xVert.length; i++) ctx.lineTo(xVert[i], yVert[i]);
+ 
+        ctx.lineTo(xVert[0], yVert[0]);
         ctx.closePath();
 
-        // unrotate
-        ctx.restore();
+        if (this.fillColor !== "transparent") ctx.fill();
         
         // stroke and fill (inset stroke thanks to https://stackoverflow.com/a/45125187)
         ctx.save();
-        ctx.translate(width/2, height/2);
-        ctx.rotate(this.rotation * Math.PI / 180);
-        ctx.translate(-width/2, -height/2);
+        ctx.translate(this.#centroidX, this.#centroidY);
+        ctx.rotate(-this.rotation * Math.PI / 180);
+        ctx.translate(-this.#centroidX, -this.#centroidY);
         
         ctx.clip();
         ctx.lineWidth *= 2;
-        if (this.fillColor !== "transparent") ctx.fill();
         if (this.outlineColor !== "transparent") ctx.stroke();
 
         ctx.restore();
@@ -423,22 +425,22 @@ class CGLPoly extends CGLObject {
 
         this.#vertices = v.map(arr => [...arr]); // shallow copy
 
-        // determine min and max x and y values
-        const xVert = this.#vertices.map(arr => arr[0]);
-        const yVert = this.#vertices.map(arr => arr[1]);
-        this.#minX = this.x + Math.min(...xVert);
-        this.#maxX = this.x + Math.max(...xVert);
-        this.#minY = this.y + Math.min(...yVert);
-        this.#maxY = this.y + Math.max(...yVert);
+        // determine centroid
+        this.#centroidX = 0, this.#centroidY = 0;
+        this.#vertices.forEach(arr => {this.#centroidX += arr[0] + this.x; this.#centroidY += arr[1] + this.y});
+        this.#centroidX /= this.#vertices.length;
+        this.#centroidY /= this.#vertices.length;
     }
 
     __isPointInBounds(x, y) {
-        // prelimiary check for extreme bounds (thanks to https://stackoverflow.com/a/218081)
-        if (x < this.#minX || x > this.#maxX || y < this.#minY || y > this.#maxY) return false;
+        // rotate bounds
+        const sin = Math.sin(-this.rotation * Math.PI/180);
+        const cos = Math.cos(-this.rotation * Math.PI/180);
+        
+        const xVert = this.#vertices.map(arr => cos*(arr[0] + this.x - this.#centroidX) - sin*(arr[1] + this.y - this.#centroidY) + this.#centroidX);
+        const yVert = this.#vertices.map(arr => sin*(arr[0] + this.x - this.#centroidX) + cos*(arr[1] + this.y - this.#centroidY) + this.#centroidY);
 
         // check if the point is within the vertices (largely thanks to https://stackoverflow.com/a/2922778)
-        const xVert = this.#vertices.map(arr => arr[0] + this.x);
-        const yVert = this.#vertices.map(arr => arr[1] + this.y);
         let isInBounds = false;
         
         for (let i = 0, j = xVert.length-1; i < xVert.length; j = i++) {
@@ -473,7 +475,7 @@ class CGLEllipse extends CGLObject {
         // rotate
         ctx.save();
         ctx.translate(this.#horizLength/2, this.#vertLength/2);
-        ctx.rotate(this.rotation * Math.PI / 180);
+        ctx.rotate(-this.rotation * Math.PI / 180);
         ctx.translate(-this.#horizLength/2, -this.#vertLength/2);
         
         // draw ellipse
@@ -492,16 +494,19 @@ class CGLEllipse extends CGLObject {
 
     __isPointInBounds(x, y) {
         // check the point against the ellipse boundaries
-        const centerX = this.x + this.#horizLength/2;
-        const centerY = this.y + this.#vertLength/2;
-        return ( (2 * (x - centerX) / this.#horizLength) ** 2 + (2 * (y - centerY) / this.#vertLength) ** 2 ) <= 1;
+        const sin = Math.sin(-this.rotation * Math.PI/180);
+        const cos = Math.cos(-this.rotation * Math.PI/180);
+
+        const cX = this.x + this.#horizLength/2;
+        const cY = this.y + this.#vertLength/2;
+        return ( (2 * (cos*(x-cX) + sin*(y-cY)) / this.#horizLength) ** 2 + (2 * (sin*(x-cX) - cos*(y-cY)) / this.#vertLength) ** 2 ) <= 1;
     }
 }
 
-// circle defined by a radius (via immediate passthrough to CGLEllipse)
+// circle defined by a diameter (via immediate passthrough to CGLEllipse)
 class CGLCircle extends CGLEllipse {
-    constructor(x, y, radius, options={}) {
-        super(x, y, radius, radius, options);
+    constructor(x, y, diameter, options={}) {
+        super(x, y, diameter, diameter, options);
     }
 }
 
@@ -536,10 +541,6 @@ class CGLRect extends CGLPoly {
             throw new CGLException("Invalid height passed to CGLRect. Height must be a positive number.");
         this.#height = h;
         this.vertices = [[0, 0], [0, h], [this.width, h], [this.width, 0] ];
-    }
-
-    __isPointInBounds(x, y) {
-        return (x >= this.x && this.#width + this.x >= x && y >= this.y && this.#height + this.y >= y)
     }
 }
 

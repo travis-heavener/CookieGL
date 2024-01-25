@@ -36,7 +36,7 @@ class CGLCanvas {
     #ctx; // canvas 2d context (canvas.getContext("2d"));
     #refreshTimeout = null; // returned by setInterval, holds engine loop interval
     #children;
-    #id = __cglRandomID(); // unique id associated with this CGLCanvas
+    id = __cglRandomID(); // unique id associated with this CGLCanvas
 
     constructor(canvasElem, options={}) {
         if (canvasElem.constructor !== HTMLCanvasElement) {
@@ -144,9 +144,16 @@ class CGLCanvas {
             ctx.strokeStyle = child.outlineColor;
             ctx.lineWidth = child.outlineThickness;
 
-            ctx.translate(child.x, child.y); // move to child's x, y coords
+            // move to child's x, y coords
+            const offsetX = child.x, offsetY = child.y;
+            ctx.translate(offsetX, offsetY);
+
+            // rotate the child
+            child.__move(); // move the child
             child.__draw(this.#ctx); // draw the child
-            ctx.translate(-child.x, -child.y); // revert to origin
+            
+            // revert to origin
+            ctx.translate(-offsetX, -offsetY);
         }
 
         // unflip canvas
@@ -212,6 +219,17 @@ class CGLObject {
 
     id; // the ID of this particular CGLObject
     canvasID = null; // number, the ID of the canvas the CGLObject is associated with
+    #lastUpdate; // the last timestamp of when __move() was called
+
+    // physical properties
+    x; // x-position of the CGLObject
+    y; // y-position of the CGLObject
+    velocity = {"x": 0, "y": 0} // the x and y velocities of the CGLObject, in px/s
+    acceleration = {"x": 0, "y": 0} // the x and y accelerations of the CGLObject, in px/s/s
+    
+    rotation = 0; // the rotation of the object, in degrees
+    angularVelocity = 0; // the angular velocity of the object, in degrees/s
+    angularAcceleration = 0; // the angular acceleration of the object, in degrees/s/s
 
     // event listeners
     #eventListeners = {"click": [], "hover": []};
@@ -239,6 +257,9 @@ class CGLObject {
         this.isVisible = options.isVisible ?? true;
         this.#cursor = options.cursor ?? "";
         this.ignoreClicks = options.ignoreClicks ?? false;
+
+        // update #lastUpdate timestamp
+        this.#lastUpdate = Date.now();
     }
 
     // template draw method, called by CGLCanvas
@@ -246,6 +267,25 @@ class CGLObject {
     __draw(ctx) {
         if (this.constructor === CGLObject)
             throw new CGLException("Cannot directly call draw() on CGLObject, only subclasses.");
+    }
+
+    // move the CGLObject based on the given frameGap (time between now and last update)
+    __move() {
+        // get frameGap, in seconds
+        const frameGap = (Date.now() - this.#lastUpdate) / 1e3;
+
+        // move the object
+        this.velocity.x += this.acceleration.x * frameGap;
+        this.velocity.y += this.acceleration.y * frameGap;
+        this.x += this.velocity.x * frameGap;
+        this.y += this.velocity.y * frameGap;
+
+        // rotate the object
+        this.angularVelocity += this.angularAcceleration * frameGap;
+        this.rotation -= this.angularVelocity * frameGap;
+
+        // update last timestamp
+        this.#lastUpdate = Date.now();
     }
 
     // returns true if the specified point is in bounds of the object, or false otherwise
@@ -344,19 +384,35 @@ class CGLPoly extends CGLObject {
     }
 
     __draw(ctx) {
+        const width = this.#maxX - this.#minX, height = this.#maxY - this.#minY;
+
+        // rotate the polygon
+        ctx.save();
+        ctx.translate(width/2, height/2);
+        ctx.rotate(this.rotation * Math.PI / 180);
+        ctx.translate(-width/2, -height/2);
+
         // fill polygon vertices
         ctx.beginPath();
         for (let vertex of this.#vertices)
             ctx.lineTo(vertex[0], vertex[1]);
         ctx.lineTo(0, 0); // draw line back to x, y
         ctx.closePath();
+
+        // unrotate
+        ctx.restore();
         
         // stroke and fill (inset stroke thanks to https://stackoverflow.com/a/45125187)
         ctx.save();
+        ctx.translate(width/2, height/2);
+        ctx.rotate(this.rotation * Math.PI / 180);
+        ctx.translate(-width/2, -height/2);
+        
         ctx.clip();
         ctx.lineWidth *= 2;
         if (this.fillColor !== "transparent") ctx.fill();
         if (this.outlineColor !== "transparent") ctx.stroke();
+
         ctx.restore();
     }
 
@@ -398,11 +454,20 @@ class CGLEllipse extends CGLObject {
     }
 
     __draw(ctx) {
+        // rotate
+        ctx.save();
+        ctx.translate(this.#horizLength/2, this.#vertLength/2);
+        ctx.rotate(this.rotation * Math.PI / 180);
+        ctx.translate(-this.#horizLength/2, -this.#vertLength/2);
+        
         // draw ellipse
         ctx.beginPath();
         // move the ellipse since ctx.ellipse draws at the center
         ctx.ellipse(this.#horizLength/2, this.#vertLength/2, this.#horizLength/2, this.#vertLength/2, 0, 0, 2*Math.PI);
         ctx.stroke();
+
+        // restore rotation
+        ctx.restore();
 
         // stroke polygon
         if (this.fillColor !== "transparent") ctx.fill();
@@ -443,10 +508,17 @@ class CGLRect extends CGLObject {
     }
 
     __draw(ctx) {
+        ctx.save();
+        ctx.translate(this.#width/2, this.#height/2);
+        ctx.rotate(this.rotation * Math.PI / 180);
+        ctx.translate(-this.#width/2, -this.#height/2);
+
         if (this.fillColor !== "transparent")
             ctx.fillRect(0, 0, this.#width, this.#height);
         if (this.outlineColor !== "transparent")
             ctx.strokeRect(0, 0, this.#width, this.#height);
+        
+        ctx.restore();
     }
 
     __isPointInBounds(x, y) {

@@ -29,6 +29,10 @@ $(document).ready(() => {
         console.log("Triangle is hovered!", this);
     });
 
+    triangle.velocity.x = 10;
+    triangle.angularVelocity = 90;
+    triangle.angularAcceleration = 5;
+
     // start interval
     cgl.start();
 });

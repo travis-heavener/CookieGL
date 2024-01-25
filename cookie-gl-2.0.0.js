@@ -367,20 +367,12 @@ class CGLPoly extends CGLObject {
         this.#vertices = vertices.map(arr => [...arr]); // shallow copy
 
         // determine min and max x and y values
-        this.#minX = this.#vertices[0][0], this.#maxX = this.#vertices[0][0];
-        this.#minY = this.#vertices[0][1], this.#maxY = this.#vertices[0][1];
-
-        for (let vertex of this.#vertices) {
-            if (vertex[0] < this.#minX) this.#minX = vertex[0];
-            else if (vertex[0] > this.#maxX) this.#maxX = vertex[0];
-            if (vertex[1] < this.#minY) this.#minY = vertex[1];
-            else if (vertex[1] > this.#maxY) this.#maxY = vertex[1];
-        }
-
-        this.#minX += this.x;
-        this.#maxX += this.x;
-        this.#minY += this.y;
-        this.#maxY += this.y;
+        const xVert = this.#vertices.map(arr => arr[0]);
+        const yVert = this.#vertices.map(arr => arr[1]);
+        this.#minX = this.x + Math.min(...xVert);
+        this.#maxX = this.x + Math.max(...xVert);
+        this.#minY = this.y + Math.min(...yVert);
+        this.#maxY = this.y + Math.max(...yVert);
     }
 
     __draw(ctx) {
@@ -414,6 +406,30 @@ class CGLPoly extends CGLObject {
         if (this.outlineColor !== "transparent") ctx.stroke();
 
         ctx.restore();
+    }
+
+    // shallow copy vertices on return to prevent reference modification
+    get vertices() {  return this.#vertices.map(arr => [...arr]);  }
+    set vertices(v) {
+        // check parameters
+        if (v === null || v.constructor !== Array || vertices.length < 3)
+            throw new CGLException("Invalid parameter passed to CGLPoly vertices. Parameter vertices array must have at least >=3 vertices.");
+
+        // sanitize vertices
+        v.forEach(n => {
+            if (n.length !== 2 || n[0].constructor !== Number || n[1].constructor !== Number)
+                throw new CGLException("Invalid argument: vertices must each be an array of 2 numbers in the format [x, y].");
+        });
+
+        this.#vertices = v.map(arr => [...arr]); // shallow copy
+
+        // determine min and max x and y values
+        const xVert = this.#vertices.map(arr => arr[0]);
+        const yVert = this.#vertices.map(arr => arr[1]);
+        this.#minX = this.x + Math.min(...xVert);
+        this.#maxX = this.x + Math.max(...xVert);
+        this.#minY = this.y + Math.min(...yVert);
+        this.#maxY = this.y + Math.max(...yVert);
     }
 
     __isPointInBounds(x, y) {
@@ -490,7 +506,7 @@ class CGLCircle extends CGLEllipse {
 }
 
 // rectangle defined by width and height
-class CGLRect extends CGLObject {
+class CGLRect extends CGLPoly {
     #width; // numeric dimensions of rectangle, in pixels
     #height; // numeric dimensions of rectangle, in pixels
 
@@ -501,24 +517,25 @@ class CGLRect extends CGLObject {
         if (height === null || height.constructor !== Number || height < 0)
             throw new CGLException("Invalid height passed to CGLRect constructor. Height must be a positive number.");
 
-        // otherwise, passthrough to CGLRect
-        super(x, y, options);
+        // otherwise, passthrough to CGLPoly
+        super(x, y, [[0, 0], [0, height], [width, height], [width, 0]], options);
         this.#width = width;
         this.#height = height;
     }
 
-    __draw(ctx) {
-        ctx.save();
-        ctx.translate(this.#width/2, this.#height/2);
-        ctx.rotate(this.rotation * Math.PI / 180);
-        ctx.translate(-this.#width/2, -this.#height/2);
-
-        if (this.fillColor !== "transparent")
-            ctx.fillRect(0, 0, this.#width, this.#height);
-        if (this.outlineColor !== "transparent")
-            ctx.strokeRect(0, 0, this.#width, this.#height);
-        
-        ctx.restore();
+    get width() {  return this.#width;  }
+    get height() {  return this.#height;  }
+    set width(w) {
+        if (w.constructor !== Number || w < 0)
+            throw new CGLException("Invalid width passed to CGLRect. Width must be a positive number.");
+        this.#width = w;
+        this.vertices = [[0, 0], [0, this.height], [w, this.height], [w, 0] ];
+    }
+    set height(h) {
+        if (h.constructor !== Number || h < 0)
+            throw new CGLException("Invalid height passed to CGLRect. Height must be a positive number.");
+        this.#height = h;
+        this.vertices = [[0, 0], [0, h], [this.width, h], [this.width, 0] ];
     }
 
     __isPointInBounds(x, y) {

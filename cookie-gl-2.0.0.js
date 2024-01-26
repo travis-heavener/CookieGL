@@ -183,24 +183,42 @@ class CGLCanvas {
     append(obj=null) {
         if (obj === null || !(obj instanceof CGLObject))
             throw new CGLException("Invalid CGLCanvas child. Expected subclass of CGLObject, got " + (obj === null ? null : obj.constructor.name));
-        else if (obj.canvasID !== null)
-            throw new CGLException("CGLObject already belongs to a canvas with id: " + obj.canvasID);
+        else if (obj.canvas !== null)
+            throw new CGLException("CGLObject already belongs to a canvas: " + obj.canvas.id);
 
         // otherwise, append the child
         this.#children.push(obj);
-        obj.canvasID = this.id;
+        obj.canvas = this;
     }
     
     // append child to start of array (draws behind everything)
     prepend(obj=null) {
         if (obj === null || !(obj instanceof CGLObject))
             throw new CGLException("Invalid CGLCanvas child. Expected subclass of CGLObject, got " + (obj === null ? null : obj.constructor.name));
-        else if (obj.canvasID !== null)
-            throw new CGLException("CGLObject already belongs to a canvas with id: " + obj.canvasID);
+        else if (obj.canvas !== null)
+            throw new CGLException("CGLObject already belongs to a canvas: " + obj.canvas.id);
 
         // otherwise, append the child
         this.#children.unshift(obj);
-        obj.canvasID = this.id;
+        obj.canvas = this;
+    }
+
+    // remove a child from the children array
+    // returns true when the object is found and removed, false otherwise
+    remove(obj=null) {
+        if (obj === null || !(obj instanceof CGLObject))
+            throw new CGLException("Cannot remove non-CGLObject from canvas.");
+
+        for (let i = 0; i < this.#children.length; i++) {
+            if (this.#children[i] === obj) {
+                this.#children.splice(i, 1);
+                obj.canvas = null;
+                return true;
+            }
+        }
+
+        // base case
+        return false;
     }
 
     // get whatever child is at the current relative x-y position (regardless of visibility)
@@ -230,7 +248,7 @@ class CGLObject {
     cursor; // string; cursor shown when the CGLObject is hovered over
 
     id; // the ID of this particular CGLObject
-    canvasID = null; // number, the ID of the canvas the CGLObject is associated with
+    canvas = null; // the parent canvas
     #lastUpdate; // the last timestamp of when __move() was called
 
     // physical properties
@@ -347,6 +365,29 @@ class CGLObject {
         for (let event of this.#eventListeners[eventName])
             event.callback(...args);
     }
+
+    // enable rearrangement of the child in the canvas
+    // move the CGLObject to the front of the canvas
+    toFront() {
+        if (this.canvas === null)
+            throw new CGLException("Cannot move CGLObject z-position: the object is not a child of a canvas.");
+
+        // move the child to the front of the parent canvas
+        const canvas = this.canvas;
+        canvas.remove(this);
+        canvas.append(this);
+    }
+
+    // move the CGLObject to the back of the canvas
+    toBack() {
+        if (this.canvas === null)
+            throw new CGLException("Cannot move CGLObject z-position: the object is not a child of a canvas.");
+
+        // move the child to the front of the parent canvas
+        const canvas = this.canvas;
+        canvas.remove(this);
+        canvas.prepend(this);
+    }
 }
 
 // polygon defined by set of points
@@ -414,7 +455,7 @@ class CGLPoly extends CGLObject {
     get vertices() {  return this.#vertices.map(arr => [...arr]);  }
     set vertices(v) {
         // check parameters
-        if (v === null || v.constructor !== Array || vertices.length < 3)
+        if (v === null || v.constructor !== Array || v.length < 3)
             throw new CGLException("Invalid parameter passed to CGLPoly vertices. Parameter vertices array must have at least >=3 vertices.");
 
         // sanitize vertices
@@ -492,6 +533,19 @@ class CGLEllipse extends CGLObject {
         if (this.outlineColor !== "transparent") ctx.stroke();
     }
 
+    get horizDiameter() {  return this.#horizLength;  }
+    set horizDiameter(h) {
+        if (h === null || h.constructor !== Number || h < 0)
+            throw new CGLException("Invalid argument type: expected positive number.");
+        this.#horizLength = h;
+    }
+    get vertDiameter() {  return this.#vertLength;  }
+    set vertDiameter(v) {
+        if (v === null || v.constructor !== Number || v < 0)
+            throw new CGLException("Invalid argument type: expected positive number.");
+        this.#vertLength = v;
+    }
+
     __isPointInBounds(x, y) {
         // check the point against the ellipse boundaries
         const sin = Math.sin(-this.rotation * Math.PI/180);
@@ -507,6 +561,14 @@ class CGLEllipse extends CGLObject {
 class CGLCircle extends CGLEllipse {
     constructor(x, y, diameter, options={}) {
         super(x, y, diameter, diameter, options);
+    }
+
+    get radius() {  return this.horizDiameter/2;  }
+    set radius(r) {
+        if (r === null || r.constructor !== Number || r < 0)
+            throw new CGLException("Invalid argument type: expected positive number.");
+        this.horizDiameter = r*2; // call super setters
+        this.vertDiameter = r*2; // call super setters
     }
 }
 
@@ -531,13 +593,13 @@ class CGLRect extends CGLPoly {
     get width() {  return this.#width;  }
     get height() {  return this.#height;  }
     set width(w) {
-        if (w.constructor !== Number || w < 0)
+        if (w === null || w.constructor !== Number || w < 0)
             throw new CGLException("Invalid width passed to CGLRect. Width must be a positive number.");
         this.#width = w;
         this.vertices = [[0, 0], [0, this.height], [w, this.height], [w, 0] ];
     }
     set height(h) {
-        if (h.constructor !== Number || h < 0)
+        if (h === null || h.constructor !== Number || h < 0)
             throw new CGLException("Invalid height passed to CGLRect. Height must be a positive number.");
         this.#height = h;
         this.vertices = [[0, 0], [0, h], [this.width, h], [this.width, 0] ];
@@ -553,6 +615,14 @@ class CGLSquare extends CGLRect {
 
         // otherwise, passthrough to CGLRect
         super(x, y, size, size, options);
+    }
+
+    get size() {  return this.width;  }
+    set size(s) {
+        if (s === null || s.constructor !== Number || s < 0)
+            throw new CGLException("Invalid argument type: expected positive number.");
+        this.width = s; // call super setters
+        this.height = s; // call super setters
     }
 }
 
@@ -691,7 +761,6 @@ class CGLFrames extends CGLImage {
         }
         
         this.src = this.#frameURLs[ this.#pattern[this.#frameIndex] ];
-        console.log(this.#frameIndex);
 
         super.__move();
     }

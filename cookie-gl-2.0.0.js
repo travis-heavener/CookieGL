@@ -556,4 +556,59 @@ class CGLSquare extends CGLRect {
     }
 }
 
+// an image defined by its source HTMLImageElement
+class CGLImage extends CGLRect {
+    #src; // the path to the current image
+    #img; // the current HTMLImageElement containing the source image and it's width/height
+
+    constructor(x=null, y=null, width=null, height=null, imagePath=null, options={}) {
+        // verify width and height are valid
+        if (width === null || width.constructor !== Number || width < 0)
+            throw new CGLException("Invalid width passed to CGLImage constructor. Width must be a positive number.");
+        if (height === null || height.constructor !== Number || height < 0)
+            throw new CGLException("Invalid height passed to CGLImage constructor. Height must be a positive number.");
+        if (imagePath === null || imagePath.constructor !== String || imagePath === "")
+            throw new CGLException("Invalid image URL passed to CGLImage constructor. Image path must be a non-empty string.");
+
+        // otherwise, passthrough to CGLRect
+        super(x, y, width, height, options);
+        this.#img = new Image(this.width, this.height);
+        this.src = imagePath; // call setter to set #img.src and #src
+    }
+
+    get src() {  return this.#src;  }
+    set src(s) {
+        if (s.constructor !== String || s === "")
+            throw new CGLException("Invalid image URL passed to CGLImage. Image path must be a non-empty string.");
+        this.#src = s;
+        this.#img.src = s;
+    }
+    get width() {  return super.width;  }
+    set width(w) {
+        super.width = w; // call super, which handles errors
+        this.#img.width = w;
+    }
+    get height() {  return super.height;  }
+    set height(h) {
+        super.height = h; // call super, which handles errors
+        this.#img.height = h;
+    }
+
+    // override draw method to draw the image w/ rotation
+    __draw(ctx) {
+        // rotate around the center
+        ctx.translate(this.width/2, this.height/2);
+        ctx.rotate((-this.rotation - 180) * Math.PI / 180);
+        
+        // reposition rather than translating twice more
+        ctx.scale(-1, 1);
+        ctx.drawImage(this.#img, -this.width/2, -this.height/2, this.width, this.height);
+        ctx.scale(-1, 1);
+        
+        // un-rotate
+        ctx.rotate((this.rotation - 180) * Math.PI / 180);
+        ctx.translate(-this.width/2, -this.height/2);
+    }
+}
+
 /****************** END CGLOBJECT CLASS ******************/

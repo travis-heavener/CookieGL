@@ -12,6 +12,7 @@ $(document).ready(() => {
     const circle = new CGLCircle(75, 75, 50, {fillColor: "purple", cursor: "pointer"});
     const rect = new CGLRect(100, 100, 25, 50, {fillColor: "gold", outlineColor: "magenta"});
     const square = new CGLSquare(100, 100, 30, {fillColor: "lime"});
+    const img = new CGLImage(250, 250, 250, 250, "https://shoonia.github.io/1x1/favicon.png");
 
     cgl.append(triangle);
     cgl.append(squarePoly);
@@ -19,6 +20,7 @@ $(document).ready(() => {
     cgl.append(circle);
     cgl.append(rect);
     cgl.append(square);
+    cgl.append(img);
 
     const id = square.on("click", function() {
         console.log("Square is clicked!", this);
@@ -39,6 +41,7 @@ $(document).ready(() => {
     // triangle.velocity.x = 10;
     triangle.angularVelocity = 90;
     ellipse.angularVelocity = 90;
+    img.angularVelocity = 90;
     // triangle.angularAcceleration = 5;
 
     // TODO: enforce number type on physical properties via setters

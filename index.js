@@ -46,6 +46,13 @@ $(document).ready(() => {
 
     // TODO: enforce number type on physical properties via setters
 
+    // CGLFrames
+    const frameURLs = ["https://shoonia.github.io/1x1/favicon.png", "https://img.freepik.com/premium-vector/design-square-wood-frame-ratio-1x1_925368-87.jpg", "https://play-lh.googleusercontent.com/OrD2ksfWxLez6oDk_-wYSUlw4aZy_3HJzIWjzBdeeRLBRsr2WvowfnvkkDohNifEe8eQ"];
+    const frameTimes = [1000, 200, 200];
+    const framePattern = [0, 1, 2];
+    const frames = new CGLFrames(400, 400, 200, 200, frameURLs, frameTimes, framePattern);
+    cgl.append(frames);
+
     // start interval
     cgl.start();
 });

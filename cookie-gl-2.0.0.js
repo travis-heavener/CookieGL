@@ -611,4 +611,90 @@ class CGLImage extends CGLRect {
     }
 }
 
+class CGLFrames extends CGLImage {
+    #frameURLs; // the array of string URLs for each frame
+    #frameTimes; // in ms; an array of numeric frame times of length matching the number of frames
+    #frameIndex = 0; // the index of the current frame
+    #pattern; // the frame pattern for the individual frames, zero-indexed
+    #createdTimestamp; // when the CGLFrame was created
+    #duration = 0; // in ms, how long the animation is before it cycles back around
+
+    constructor(x=null, y=null, width=null, height=null, frameURLs=null, frameTime=null, pattern=null, options={}) {
+        // verify width and height are valid
+        if (width === null || width.constructor !== Number || width < 0)
+            throw new CGLException("Invalid width passed to CGLFrames constructor. Width must be a positive number.");
+        if (height === null || height.constructor !== Number || height < 0)
+            throw new CGLException("Invalid height passed to CGLFrames constructor. Height must be a positive number.");
+        if (frameURLs === null || frameURLs.constructor !== Array)
+            throw new CGLException("Invalid frame URLs passed to CGLFrames constructor. Frame URLs must be a non-empty array of URL strings.");
+        if (frameTime === null || !(frameURLs.constructor === Array || frameURLs.constructor !== Number))
+            throw new CGLException("Invalid frame time passed to CGLFrames constructor. Frame time must either be a number or an array of times for each individual frame.");
+        if (pattern !== null && pattern.constructor !== Array)
+            throw new CGLException("Invalid pattern passed to CGLFrames constructor. Pattern must consist of zero-index indices of each frame in their desired order.");
+
+        // verify the imagePaths are all strings
+        frameURLs.forEach(url => {
+            if (url === null || url.constructor !== String)
+                throw new CGLException("Invalid frame URL; expected string, got " + (url === null ? null : url.constructor.name) + ".");
+        });
+        
+        // verify all frame times are numbers, if given an array
+        if (frameTime.constructor === Array) {
+            frameTime.forEach(time => {
+                if (time === null || time.constructor !== Number)
+                    throw new CGLException("Invalid frame time; expected number, got " + (url === null ? null : url.constructor.name) + ".");
+            });
+        }
+
+        // verify the pattern is all numbers, if provided
+        if (pattern !== null) {
+            pattern = pattern.map(index => {
+                if (index === null || index.constructor !== Number || index >= frameURLs.length)
+                    throw new CGLException("Invalid index passed to CGLFrame pattern; only numbers are valid indices between 0 and the number of frames-1.");
+                
+                // base case
+                return index;
+            });
+        } else {
+            // set default pattern
+            pattern = frameURLs.map(({index}) => index);
+        }
+
+        // verify the number of frameTimes is the same as the number of frames in the pattern
+        if (frameTime.constructor === Array && pattern.length !== frameTime.length)
+            throw new CGLException("Array of frame times must match the number of frames in the pattern provided.");
+
+        // otherwise, passthrough to CGLImage with first frame
+        super(x, y, width, height, frameURLs[0], options);
+
+        this.#frameURLs = [...frameURLs]; // shallow copy
+        this.#frameTimes = frameTime.constructor === Array ? [...frameTime] : pattern.map(() => frameTime);
+        this.#pattern = pattern; // already shallow-copied by pattern.map
+        this.#createdTimestamp = Date.now();
+        
+        // determine the total duration of the animation
+        if (frameTime.constructor === Array)
+            frameTime.forEach(time => this.#duration += time);
+        else
+            this.#duration = frameTime * pattern.length;
+    }
+
+    // override __move
+    __move() {
+        // update frame, then call super.__move
+        this.#frameIndex = 0;
+        let interval = (Date.now() - this.#createdTimestamp) % this.#duration;
+        while (interval >= this.#frameTimes[this.#frameIndex]) {
+            // skip ahead to the correct frame, not just displaying the next one
+            interval -= this.#frameTimes[this.#frameIndex];
+            this.#frameIndex = (this.#frameIndex+1) % this.#pattern.length; // clamp and increment frameIndex
+        }
+        
+        this.src = this.#frameURLs[ this.#pattern[this.#frameIndex] ];
+        console.log(this.#frameIndex);
+
+        super.__move();
+    }
+}
+
 /****************** END CGLOBJECT CLASS ******************/
